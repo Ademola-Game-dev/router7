@@ -620,3 +620,58 @@ func TestSubname(t *testing.T) {
 		}
 	})
 }
+
+func TestAliases(t *testing.T) {
+	s := NewServer("127.0.0.2:0", "lan")
+	s.SetLeases([]dhcp4d.Lease{
+		{Hostname: "haus", Addr: net.IP{192, 168, 42, 10}},
+		{Hostname: "dr", Addr: net.IP{192, 168, 42, 20}},
+	})
+	s.SetAliases(map[string]string{
+		"mqtt": "haus",
+		"NTP":  "DR", // both sides should be lowercased
+	})
+
+	t.Run("alias resolves to target IP", func(t *testing.T) {
+		if err := resolveTestTarget(s, "mqtt.lan.", net.ParseIP("192.168.42.10")); err != nil {
+			t.Fatal(err)
+		}
+	})
+
+	t.Run("case-insensitive alias lookup", func(t *testing.T) {
+		if err := resolveTestTarget(s, "ntp.lan.", net.ParseIP("192.168.42.20")); err != nil {
+			t.Fatal(err)
+		}
+		if err := resolveTestTarget(s, "MQTT.lan.", net.ParseIP("192.168.42.10")); err != nil {
+			t.Fatal(err)
+		}
+	})
+
+	t.Run("plain DHCP names still resolve", func(t *testing.T) {
+		if err := resolveTestTarget(s, "haus.lan.", net.ParseIP("192.168.42.10")); err != nil {
+			t.Fatal(err)
+		}
+	})
+
+	t.Run("alias with offline target → NXDOMAIN", func(t *testing.T) {
+		s.SetAliases(map[string]string{"mqtt": "ghost"})
+		r := &recorder{}
+		m := new(dns.Msg)
+		m.SetQuestion("mqtt.lan.", dns.TypeA)
+		s.Mux.ServeDNS(r, m)
+		if got, want := r.response.Rcode, dns.RcodeNameError; got != want {
+			t.Fatalf("unexpected rcode: got %v, want %v", got, want)
+		}
+	})
+
+	t.Run("SetAliases(nil) clears", func(t *testing.T) {
+		s.SetAliases(nil)
+		r := &recorder{}
+		m := new(dns.Msg)
+		m.SetQuestion("mqtt.lan.", dns.TypeA)
+		s.Mux.ServeDNS(r, m)
+		if got, want := r.response.Rcode, dns.RcodeNameError; got != want {
+			t.Fatalf("unexpected rcode: got %v, want %v", got, want)
+		}
+	})
+}

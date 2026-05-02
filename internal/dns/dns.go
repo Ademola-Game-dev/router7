@@ -61,6 +61,7 @@ type Server struct {
 	hostsByName  map[lcHostname]string
 	hostsByIP    map[string]string
 	subnames     map[lcHostname]map[string]net.IP // hostname → subname → ip
+	aliases      map[lcHostname]lcHostname        // alias → target hostname
 
 	upstreamMu sync.RWMutex
 	upstream   []string
@@ -85,6 +86,7 @@ func NewServer(addr, domain string) *Server {
 		hostname:  hostname,
 		ip:        ip,
 		subnames:  make(map[lcHostname]map[string]net.IP),
+		aliases:   make(map[lcHostname]lcHostname),
 	}
 	server.prom.registry = prometheus.NewRegistry()
 
@@ -195,6 +197,26 @@ func (s *Server) hostByIP(n string) (string, bool) {
 	defer s.mu.Unlock()
 	r, ok := s.hostsByIP[n]
 	return r, ok
+}
+
+func (s *Server) aliasTarget(n string) (string, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	r, ok := s.aliases[lcHostname(strings.ToLower(n))]
+	return string(r), ok
+}
+
+// SetAliases replaces the alias table. Each entry maps a logical name (e.g.
+// "mqtt") to a DHCP hostname (e.g. "dr") that is resolved through the
+// regular DHCP-lease lookup at query time. A nil or empty map clears all
+// aliases.
+func (s *Server) SetAliases(aliases map[string]string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.aliases = make(map[lcHostname]lcHostname, len(aliases))
+	for k, v := range aliases {
+		s.aliases[lcHostname(strings.ToLower(k))] = lcHostname(strings.ToLower(v))
+	}
 }
 
 func (s *Server) subname(hostname, host string) (net.IP, bool) {
@@ -348,6 +370,19 @@ func (s *Server) resolve(q dns.Question) (rr dns.RR, err error) {
 		q.Qtype == dns.TypeMX {
 		name := strings.TrimSuffix(q.Name, ".")
 		name = strings.TrimSuffix(name, "."+s.domain)
+		if target, ok := s.aliasTarget(name); ok {
+			host, ok := s.hostByName(target)
+			if !ok {
+				// Alias defined but its target has no current
+				// DHCP lease. Fall through to NXDOMAIN.
+				return nil, nil
+			}
+			if q.Qtype == dns.TypeA {
+				// Low TTL: aliases are expected to migrate.
+				return dns.NewRR(q.Name + " 60 IN A " + host)
+			}
+			return nil, errEmpty
+		}
 		if host, ok := s.hostByName(name); ok {
 			if q.Qtype == dns.TypeA {
 				return dns.NewRR(q.Name + " 3600 IN A " + host)

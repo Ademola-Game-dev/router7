@@ -18,7 +18,6 @@ package main
 import (
 	"encoding/json"
 	"flag"
-	"io/ioutil"
 	"log"
 	"net"
 	"net/http"
@@ -90,7 +89,7 @@ func logic() error {
 	}
 	srv := dns.NewServer(ip.String()+":53", "lan")
 	readLeases := func() error {
-		b, err := ioutil.ReadFile("/perm/dhcp4d/leases.json")
+		b, err := os.ReadFile("/perm/dhcp4d/leases.json")
 		if err != nil {
 			return err
 		}
@@ -103,6 +102,25 @@ func logic() error {
 	}
 	if err := readLeases(); err != nil {
 		log.Printf("cannot resolve DHCP hostnames: %v", err)
+	}
+	readAliases := func() error {
+		b, err := os.ReadFile("/perm/dnsd/aliases.json")
+		if err != nil {
+			if os.IsNotExist(err) {
+				srv.SetAliases(nil)
+				return nil
+			}
+			return err
+		}
+		var aliases map[string]string
+		if err := json.Unmarshal(b, &aliases); err != nil {
+			return err
+		}
+		srv.SetAliases(aliases)
+		return nil
+	}
+	if err := readAliases(); err != nil {
+		log.Printf("readAliases: %v", err)
 	}
 	http.Handle("/metrics", srv.PrometheusHandler())
 	http.HandleFunc("/dyndns", srv.DyndnsHandler)
@@ -117,6 +135,9 @@ func logic() error {
 		}
 		if err := readLeases(); err != nil {
 			log.Printf("readLeases: %v", err)
+		}
+		if err := readAliases(); err != nil {
+			log.Printf("readAliases: %v", err)
 		}
 	}
 	return nil
