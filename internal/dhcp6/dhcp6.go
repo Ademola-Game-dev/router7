@@ -68,7 +68,7 @@ type Client struct {
 	hardwareAddr  net.HardwareAddr
 	raddr         *net.UDPAddr
 	timeNow       func() time.Time
-	duid          *dhcpv6.Duid
+	duid          dhcpv6.DUID
 	advertise     *dhcpv6.Message
 
 	cfg Config
@@ -122,18 +122,17 @@ func NewClient(cfg ClientConfig) (*Client, error) {
 		hardwareAddr = slices.Clone(cfg.HardwareAddr)
 	}
 
-	var duid *dhcpv6.Duid
+	var duid dhcpv6.DUID
 	if cfg.DUID != nil {
 		var err error
-		duid, err = dhcpv6.DuidFromBytes(cfg.DUID)
+		duid, err = dhcpv6.DUIDFromBytes(cfg.DUID)
 		if err != nil {
 			return nil, err
 		}
 		fmt.Printf("duid: %T, %v, %#v", duid, duid, duid)
 	} else {
-		duid = &dhcpv6.Duid{
-			Type:          dhcpv6.DUID_LLT,
-			HwType:        iana.HWTypeEthernet,
+		duid = &dhcpv6.DUIDLLT{
+			HWType:        iana.HWTypeEthernet,
 			Time:          dhcpv6.GetTime(),
 			LinkLayerAddr: hardwareAddr,
 		}
@@ -226,7 +225,7 @@ func (c *Client) sendReceive(packet *dhcpv6.Message, expectedType dhcpv6.Message
 func (c *Client) solicit(solicit *dhcpv6.Message) (*dhcpv6.Message, *dhcpv6.Message, error) {
 	var err error
 	if solicit == nil {
-		solicit, err = dhcpv6.NewSolicit(c.hardwareAddr, dhcpv6.WithClientID(*c.duid))
+		solicit, err = dhcpv6.NewSolicit(c.hardwareAddr, dhcpv6.WithClientID(c.duid))
 		if err != nil {
 			return nil, nil, err
 		}
@@ -242,7 +241,7 @@ func (c *Client) solicit(solicit *dhcpv6.Message) (*dhcpv6.Message, *dhcpv6.Mess
 }
 
 func (c *Client) request(advertise *dhcpv6.Message) (*dhcpv6.Message, *dhcpv6.Message, error) {
-	request, err := dhcpv6.NewRequestFromAdvertise(advertise, dhcpv6.WithClientID(*c.duid))
+	request, err := dhcpv6.NewRequestFromAdvertise(advertise, dhcpv6.WithClientID(c.duid))
 	if err != nil {
 		return nil, nil, err
 	}
@@ -299,7 +298,7 @@ func (c *Client) ObtainOrRenew() bool {
 }
 
 func (c *Client) Release() (release *dhcpv6.Message, reply *dhcpv6.Message, err error) {
-	release, err = dhcpv6.NewRequestFromAdvertise(c.advertise, dhcpv6.WithClientID(*c.duid))
+	release, err = dhcpv6.NewRequestFromAdvertise(c.advertise, dhcpv6.WithClientID(c.duid))
 	if err != nil {
 		return nil, nil, err
 	}

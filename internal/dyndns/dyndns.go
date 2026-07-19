@@ -28,31 +28,34 @@ type RecordGetterSetter interface {
 
 // Update takes a record which should be updated
 // within the specified zone.
-func Update(ctx context.Context, zone string, record libdns.Record, provider RecordGetterSetter) error {
+func Update(ctx context.Context, zone string, newRecord libdns.Record, provider RecordGetterSetter) error {
+	record := newRecord.RR()
+	// libdns providers deal in zone-relative names (e.g. "dyndns", or "@"
+	// for the zone apex), whereas our record is configured with the fully
+	// qualified name. Normalize once so that both the comparison below and
+	// the create fallback use the representation the provider expects.
+	record.Name = libdns.RelativeName(record.Name, zone)
 	existing, err := provider.GetRecords(ctx, zone)
 	if err != nil {
 		return err
 	}
 
 	var updated []libdns.Record
-	for _, rec := range existing {
-		fullName := rec.Name + "." + zone
-		if rec.Name == "" {
-			fullName = zone
-		}
-		if fullName != record.Name || rec.Type != record.Type {
+	for _, ex := range existing {
+		rec := ex.RR()
+		if rec.Name != record.Name || rec.Type != record.Type {
 			continue
 		}
 
-		if rec.Value == record.Value {
+		if rec.Data == record.Data {
 			log.Printf("record up to date: %s %s %s",
 				record.Name,
 				record.Type,
-				record.Value)
+				record.Data)
 			return nil
 		}
 
-		rec.Value = record.Value
+		rec.Data = record.Data
 		updated = append(updated, rec)
 		break
 	}
@@ -66,6 +69,6 @@ func Update(ctx context.Context, zone string, record libdns.Record, provider Rec
 	log.Printf("updated record: %s %s %s",
 		record.Name,
 		record.Type,
-		record.Value)
+		record.Data)
 	return nil
 }

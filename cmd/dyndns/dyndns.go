@@ -24,6 +24,7 @@ import (
 	"io/ioutil"
 	"log"
 	"net"
+	"net/netip"
 	"os"
 	"time"
 
@@ -46,26 +47,27 @@ type DynDNSRecord struct {
 	RecordTTLSeconds int `json:"record_ttl_seconds"`
 }
 
-func getIPv4Address(ifname string) (string, error) {
+func getIPv4Address(ifname string) (net.IP, error) {
 	iface, err := net.InterfaceByName(ifname)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	addrs, err := iface.Addrs()
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	for _, a := range addrs {
 		ipnet, ok := a.(*net.IPNet)
 		if !ok {
 			continue
 		}
-		if ipnet.IP.To4() == nil {
+		ip4 := ipnet.IP.To4()
+		if ip4 == nil {
 			continue // not IPv4
 		}
-		return ipnet.IP.String(), nil
+		return ip4, nil
 	}
-	return "", fmt.Errorf("no IPv4 address found on interface %s", ifname)
+	return nil, fmt.Errorf("no IPv4 address found on interface %s", ifname)
 }
 
 func logic(ifname string, records []DynDNSRecord) error {
@@ -76,6 +78,10 @@ func logic(ifname string, records []DynDNSRecord) error {
 	addr, err := getIPv4Address(ifname)
 	if err != nil {
 		return err
+	}
+	addrNet, ok := netip.AddrFromSlice(addr)
+	if !ok {
+		return fmt.Errorf("BUG: netip.AddrFromSlice(%v) !ok", addr)
 	}
 
 	for _, r := range records {
@@ -88,11 +94,10 @@ func logic(ifname string, records []DynDNSRecord) error {
 		}
 
 		ctx := context.Background()
-		record := libdns.Record{
-			Name:  r.RecordName,
-			Type:  "A",
-			Value: addr,
-			TTL:   time.Duration(r.RecordTTLSeconds) * time.Second,
+		record := libdns.Address{
+			Name: r.RecordName,
+			IP:   addrNet,
+			TTL:  time.Duration(r.RecordTTLSeconds) * time.Second,
 		}
 		if err := update(ctx, r.Zone, record, provider); err != nil {
 			return err

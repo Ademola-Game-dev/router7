@@ -19,7 +19,7 @@ func TestLogic(t *testing.T) {
 		if got, want := zone, cfg.Zone; got != want {
 			return fmt.Errorf("update(): unexpected zone: got %q, want %q", got, want)
 		}
-		if got, want := record.Name, cfg.RecordName; got != want {
+		if got, want := record.RR().Name, cfg.RecordName; got != want {
 			return fmt.Errorf("update(): unexpected record name: got %q, want %q", got, want)
 		}
 		return nil
