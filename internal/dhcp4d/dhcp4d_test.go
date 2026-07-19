@@ -17,6 +17,7 @@ package dhcp4d
 import (
 	"encoding/binary"
 	"io/ioutil"
+	"math/rand"
 	"net"
 	"os"
 	"path/filepath"
@@ -99,6 +100,9 @@ func testHandler(t *testing.T) (_ *Handler, cleanup func()) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Deterministic lease allocation: TestPreferredAddress assumes the first
+	// offered IP address is not 192.168.42.23.
+	handler.rand = rand.New(rand.NewSource(1))
 	return handler, func() { os.RemoveAll(tmpdir) }
 }
 

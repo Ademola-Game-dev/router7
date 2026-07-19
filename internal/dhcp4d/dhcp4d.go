@@ -64,6 +64,7 @@ type Handler struct {
 	iface       *net.Interface
 
 	timeNow func() time.Time
+	rand    *rand.Rand
 
 	// Leases is called whenever a new lease is handed out
 	Leases func([]*Lease, *Lease)
@@ -111,6 +112,7 @@ func NewHandler(dir string, iface *net.Interface, ifaceName string, conn net.Pac
 			dhcp4.OptionDomainSearch:     []byte{0x03, 'l', 'a', 'n', 0x00},
 		},
 		timeNow: time.Now,
+		rand:    rand.New(rand.NewSource(time.Now().UnixNano())),
 	}, nil
 }
 
@@ -168,7 +170,7 @@ func (h *Handler) findLease() int {
 	now := h.timeNow()
 	if len(h.leasesIP) < h.leaseRange {
 		// TODO: hash the hwaddr like dnsmasq
-		i := rand.Intn(h.leaseRange)
+		i := h.rand.Intn(h.leaseRange)
 		if l, ok := h.leasesIP[i]; !ok || l.Expired(now) {
 			return i
 		}
